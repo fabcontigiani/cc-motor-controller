@@ -1,0 +1,5 @@
+---
+BasedOnStyle: LLVM
+AlignEscapedNewlines: Left
+IndentWidth: '4'
+...
