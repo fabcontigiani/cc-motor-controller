@@ -1,5 +1,9 @@
+#include <LiquidCrystal.h>
+#include <LiquidCrystal_Config.h>
 #include <avr/interrupt.h>
 #include <avr/io.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <util/delay.h>
 
 // Pines
@@ -13,6 +17,7 @@
 
 #define BOUNCE_DELAY 10 // ms
 #define PWM_PERIOD 124  // (124 + 1) * 64 * (1/16MHz) = 500us -> f = 2kHz
+#define LCD_WIDTH 16
 
 uint8_t P1State;
 uint8_t lastP1State = 1;
@@ -25,6 +30,7 @@ uint16_t pot1;
 uint16_t pot2;
 volatile uint8_t flag = 0;
 volatile uint8_t dutyCicle = 50;
+char buffer[LCD_WIDTH];
 
 void start_motor();
 void stop_motor();
@@ -33,6 +39,7 @@ int configuration_mode();
 int main(void) {
 
     DDRD = (1 << PIN_PWM); // Establece OC0B como salida
+    DDRB = 0xFF;           // Establece Puerto B como salida
     PORTD = (1 << P1) | (1 << P2) | (1 << P3);
 
     // Configurar la solicitud de interrupción externa
@@ -45,6 +52,11 @@ int main(void) {
 
     TCCR0A = (1 << WGM00) | (1 << WGM01); // Modo Fast PWM
     TCCR0B = (1 << WGM02);                // con tope OCR0A
+
+    liquidCrystal_init();
+    liquidCrystal_cursor(0, 0);
+    liquidCrystal_noCursor();
+    // liquidCrystal_print("Hello world!");
 
     configuration_mode();
 
@@ -101,6 +113,8 @@ void stop_motor() {
 }
 
 int configuration_mode() {
+    sprintf(&buffer[0], "Configuring: T%1d", 1);
+    liquidCrystal_print(buffer);
     while (1) {
         if (flag)
             return 1;
