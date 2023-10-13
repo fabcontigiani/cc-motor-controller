@@ -28,6 +28,7 @@ volatile uint8_t dutyCicle = 50;
 
 void start_motor();
 void stop_motor();
+int configuration_mode();
 
 int main(void) {
 
@@ -45,6 +46,8 @@ int main(void) {
     TCCR0A = (1 << WGM00) | (1 << WGM01); // Modo Fast PWM
     TCCR0B = (1 << WGM02);                // con tope OCR0A
 
+    configuration_mode();
+
     while (1) {
         if (flag) {
             if (motorIsOn)
@@ -60,6 +63,18 @@ int main(void) {
             dutyCicle = 50;
         }
         OCR0B = dutyCicle;
+
+        P2State = (PIND & (1 << P2));
+        if (P2State != lastP2State) {
+            if (!P2State) {
+                _delay_ms(BOUNCE_DELAY);
+                if (!(PIND & (1 << P2))) {
+                    if (configuration_mode())
+                        continue;
+                }
+            }
+        }
+        lastP2State = P2State;
     }
 
     return 0;
@@ -83,4 +98,34 @@ void stop_motor() {
     TCCR0B &= ~(1 << CS01) & ~(1 << CS00); // Prescaler 0. Detiene conteo.
     PORTD &= ~(1 << PIN_PWM);              // Apaga motor
     motorIsOn = 0;
+}
+
+int configuration_mode() {
+    while (1) {
+        if (flag)
+            return 1;
+
+        P2State = (PIND & (1 << P2));
+        if (P2State != lastP2State) {
+            if (!P2State) {
+                _delay_ms(BOUNCE_DELAY);
+                if (!(PIND & (1 << P2))) {
+                    break;
+                }
+            }
+        }
+        lastP2State = P2State;
+
+        P3State = (PIND & (1 << P3));
+        if (P3State != lastP3State) {
+            if (!P3State) {
+                _delay_ms(BOUNCE_DELAY);
+                if (!(PIND & (1 << P3))) {
+                    ; // TODO toggle between T1 and T2
+                }
+            }
+        }
+        lastP3State = P3State;
+    }
+    return 0;
 }
