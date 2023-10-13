@@ -25,15 +25,17 @@ uint8_t P2State;
 uint8_t lastP2State = 1;
 uint8_t P3State;
 uint8_t lastP3State = 1;
-uint8_t motorIsOn = 0;
+uint8_t motorIsOn = 0; // 0 = OFF; 1 = Stage 1; 2 = Stage 2
+uint8_t lastMotorState = 0;
 uint8_t configuringT1 = 1;
-uint8_t duration1 = 10;
-uint8_t duration2 = 20;
+uint8_t duration1 = 20; // * 100ms
+uint8_t duration2 = 39; // * 100ms
 uint8_t dutyCycle1 = 40;
 uint8_t dutyCycle2 = 95;
 uint16_t pot1;
 uint16_t pot2;
 volatile uint8_t flag = 0;
+volatile uint8_t counter = 0;
 char buffer[LCD_WIDTH];
 
 void start_motor();
@@ -54,11 +56,14 @@ int main(void) {
     EIMSK = (1 << INT0);  // Habilitar PD2 como interrupción externa
     sei();                // Habilitar interrupciones globales
 
+    TCCR0A = (1 << WGM00) | (1 << WGM01); // Modo Fast PWM
+    TCCR0B = (1 << WGM02);                // con tope OCR0A
     OCR0A = PWM_PERIOD - 1;
     OCR0B = dutyCycle1;
 
-    TCCR0A = (1 << WGM00) | (1 << WGM01); // Modo Fast PWM
-    TCCR0B = (1 << WGM02);                // con tope OCR0A
+    TCCR1B = (1 << WGM12);
+    TIMSK1 = (1 << OCIE1A);
+    OCR1A = 6249; // 6250 * 256 * (1/16MHz) = 100ms
 
     liquidCrystal_init();
 
@@ -69,9 +74,12 @@ int main(void) {
                 stop_motor();
             else
                 start_motor();
-            updateLCD_normalMode();
             flag = 0;
         }
+
+        if (motorIsOn != lastMotorState)
+            updateLCD_normalMode();
+        lastMotorState = motorIsOn;
 
         P2State = (PIND & (1 << P2));
         if (!motorIsOn && P2State != lastP2State) {
@@ -94,16 +102,44 @@ ISR(INT0_vect) {
         flag = 1; // Establecer la bandera para indicar la interrupción
 }
 
+ISR(TIMER1_COMPA_vect) {
+    counter++;
+    switch (motorIsOn) {
+    case 1:
+        if (counter >= duration1) {
+            OCR0B = dutyCycle2;
+            motorIsOn = 2;
+            counter = 0;
+        }
+        break;
+    case 2:
+        if (counter >= duration2) {
+            OCR0B = dutyCycle1;
+            motorIsOn = 1;
+            counter = 0;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 void start_motor() {
     TCCR0A |= (1 << COM0B1);             // Modo PWM no invertido
-    TCCR0B |= (1 << CS01) | (1 << CS00); // Prescaler 64. Inicia conteo.
+    TCCR0B |= (1 << CS01) | (1 << CS00); // Prescaler 64. Inicia conteo
+    TCCR1B |= (1 << CS12);               // Prescaler 256. Inicia conteo
     motorIsOn = 1;
 }
 
 void stop_motor() {
     TCCR0A &= ~(1 << COM0B1);              // Desconecta OC0B
-    TCCR0B &= ~(1 << CS01) & ~(1 << CS00); // Prescaler 0. Detiene conteo.
+    TCCR0B &= ~(1 << CS01) & ~(1 << CS00); // Prescaler 0. Detiene conteo
+    TCNT0 = 0;                             // Reinicia contador
+    TCCR1B &= ~(1 << CS12);                // Prescaler 0. Detiene conteo
+    TCNT1 = 0;                             // Reinicia contador
     PORTD &= ~(1 << PIN_PWM);              // Apaga motor
+    OCR0B = dutyCycle1;
+    counter = 0;
     motorIsOn = 0;
 }
 
@@ -146,18 +182,29 @@ void write_buffer_to_row(int row) {
 }
 
 void updateLCD_configurationMode() {
-    sprintf(&buffer[0], "CONFIGURING: T%-2d", (configuringT1) ? 1 : 2);
-    write_buffer_to_row(0);
-    if (configuringT1)
-        sprintf(&buffer[0], "TIME:%2d DUTY:%%%2d", duration1, dutyCycle1);
-    else
-        sprintf(&buffer[0], "TIME:%2d DUTY:%%%2d", duration2, dutyCycle2);
-    write_buffer_to_row(1);
+    if (configuringT1) {
+        sprintf(&buffer[0], "TIME %d: %-2.1fs", 1, duration1 / 10.0);
+        write_buffer_to_row(0);
+        sprintf(&buffer[0], "DUTY %d: %2d%%", 1, dutyCycle1);
+        write_buffer_to_row(1);
+    } else { // configuring T2
+        sprintf(&buffer[0], "TIME %d: %-2.1fs", 2, duration2 / 10.0);
+        write_buffer_to_row(0);
+        sprintf(&buffer[0], "DUTY %d: %2d%%", 2, dutyCycle2);
+        write_buffer_to_row(1);
+    }
 }
 
 void updateLCD_normalMode() {
-    sprintf(&buffer[0], "%-16s", "NORMAL MODE");
-    write_buffer_to_row(0);
-    sprintf(&buffer[0], "MOTOR: %-9s", (motorIsOn) ? "ON" : "OFF");
-    write_buffer_to_row(1);
+    if (motorIsOn) {
+        sprintf(&buffer[0], "MOTOR: ON ");
+        write_buffer_to_row(0);
+        sprintf(&buffer[0], "STATUS: STAGE %d", motorIsOn);
+        write_buffer_to_row(1);
+    } else { // motor is off
+        sprintf(&buffer[0], "MOTOR: OFF");
+        write_buffer_to_row(0);
+        sprintf(&buffer[0], "STATUS: STANDBY");
+        write_buffer_to_row(1);
+    }
 }
