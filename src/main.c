@@ -26,15 +26,22 @@ uint8_t lastP2State = 1;
 uint8_t P3State;
 uint8_t lastP3State = 1;
 uint8_t motorIsOn = 0;
+uint8_t configuringT1 = 1;
+uint8_t duration1 = 10;
+uint8_t duration2 = 20;
+uint8_t dutyCicle1 = 40;
+uint8_t dutyCicle2 = 95;
 uint16_t pot1;
 uint16_t pot2;
 volatile uint8_t flag = 0;
-volatile uint8_t dutyCicle = 50;
 char buffer[LCD_WIDTH];
 
 void start_motor();
 void stop_motor();
-int configuration_mode();
+void configuration_mode();
+void write_buffer_to_row(int);
+void updateLCD_configurationMode();
+void updateLCD_normalMode();
 
 int main(void) {
 
@@ -48,42 +55,30 @@ int main(void) {
     sei();                // Habilitar interrupciones globales
 
     OCR0A = PWM_PERIOD - 1;
-    OCR0B = dutyCicle;
+    OCR0B = dutyCicle1;
 
     TCCR0A = (1 << WGM00) | (1 << WGM01); // Modo Fast PWM
     TCCR0B = (1 << WGM02);                // con tope OCR0A
 
     liquidCrystal_init();
-    liquidCrystal_cursor(0, 0);
-    liquidCrystal_noCursor();
-    // liquidCrystal_print("Hello world!");
 
-    configuration_mode();
-
+    updateLCD_normalMode();
     while (1) {
         if (flag) {
             if (motorIsOn)
                 stop_motor();
             else
                 start_motor();
+            updateLCD_normalMode();
             flag = 0;
         }
-
-        _delay_ms(10);
-        dutyCicle += 1;
-        if (dutyCicle >= 118) {
-            dutyCicle = 50;
-        }
-        OCR0B = dutyCicle;
 
         P2State = (PIND & (1 << P2));
         if (P2State != lastP2State) {
             if (!P2State) {
                 _delay_ms(BOUNCE_DELAY);
-                if (!(PIND & (1 << P2))) {
-                    if (configuration_mode())
-                        continue;
-                }
+                if (!(PIND & (1 << P2)))
+                    configuration_mode();
             }
         }
         lastP2State = P2State;
@@ -112,20 +107,19 @@ void stop_motor() {
     motorIsOn = 0;
 }
 
-int configuration_mode() {
-    sprintf(&buffer[0], "Configuring: T%1d", 1);
-    liquidCrystal_print(buffer);
+void configuration_mode() {
+    lastP2State = 0;
+    updateLCD_configurationMode();
     while (1) {
         if (flag)
-            return 1;
+            flag = 0; // do nothing
 
         P2State = (PIND & (1 << P2));
         if (P2State != lastP2State) {
             if (!P2State) {
                 _delay_ms(BOUNCE_DELAY);
-                if (!(PIND & (1 << P2))) {
+                if (!(PIND & (1 << P2)))
                     break;
-                }
             }
         }
         lastP2State = P2State;
@@ -135,11 +129,35 @@ int configuration_mode() {
             if (!P3State) {
                 _delay_ms(BOUNCE_DELAY);
                 if (!(PIND & (1 << P3))) {
-                    ; // TODO toggle between T1 and T2
+                    configuringT1 ^= 1;
+                    updateLCD_configurationMode();
                 }
             }
         }
         lastP3State = P3State;
     }
-    return 0;
+    updateLCD_normalMode();
+}
+
+void write_buffer_to_row(int row) {
+    liquidCrystal_setCursor(0, row);
+    liquidCrystal_print(buffer);
+    liquidCrystal_noCursor();
+}
+
+void updateLCD_configurationMode() {
+    sprintf(&buffer[0], "CONFIGURING: T%-2d", (configuringT1) ? 1 : 2);
+    write_buffer_to_row(0);
+    if (configuringT1)
+        sprintf(&buffer[0], "TIME:%2d DUTY:%%%2d", duration1, dutyCicle1);
+    else
+        sprintf(&buffer[0], "TIME:%2d DUTY:%%%2d", duration2, dutyCicle2);
+    write_buffer_to_row(1);
+}
+
+void updateLCD_normalMode() {
+    sprintf(&buffer[0], "%-16s", "NORMAL MODE");
+    write_buffer_to_row(0);
+    sprintf(&buffer[0], "MOTOR: %-9s", (motorIsOn) ? "ON" : "OFF");
+    write_buffer_to_row(1);
 }
