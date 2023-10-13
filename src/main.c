@@ -16,7 +16,7 @@
 // Display LCD -> PB0:5
 
 #define BOUNCE_DELAY 10 // ms
-#define PWM_PERIOD 124  // (124 + 1) * 64 * (1/16MHz) = 500us -> f = 2kHz
+#define PWM_PERIOD 125  // 125 * 64 * (1/16MHz) = 500us -> f = 2kHz
 #define LCD_WIDTH 16
 
 uint8_t P1State;
@@ -47,7 +47,7 @@ int main(void) {
     EIMSK = (1 << INT0);  // Habilitar PD2 como interrupción externa
     sei();                // Habilitar interrupciones globales
 
-    OCR0A = PWM_PERIOD;
+    OCR0A = PWM_PERIOD - 1;
     OCR0B = dutyCicle;
 
     TCCR0A = (1 << WGM00) | (1 << WGM01); // Modo Fast PWM
