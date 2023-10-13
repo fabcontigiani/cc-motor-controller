@@ -29,8 +29,8 @@ uint8_t motorIsOn = 0;
 uint8_t configuringT1 = 1;
 uint8_t duration1 = 10;
 uint8_t duration2 = 20;
-uint8_t dutyCicle1 = 40;
-uint8_t dutyCicle2 = 95;
+uint8_t dutyCycle1 = 40;
+uint8_t dutyCycle2 = 95;
 uint16_t pot1;
 uint16_t pot2;
 volatile uint8_t flag = 0;
@@ -55,7 +55,7 @@ int main(void) {
     sei();                // Habilitar interrupciones globales
 
     OCR0A = PWM_PERIOD - 1;
-    OCR0B = dutyCicle1;
+    OCR0B = dutyCycle1;
 
     TCCR0A = (1 << WGM00) | (1 << WGM01); // Modo Fast PWM
     TCCR0B = (1 << WGM02);                // con tope OCR0A
@@ -149,9 +149,9 @@ void updateLCD_configurationMode() {
     sprintf(&buffer[0], "CONFIGURING: T%-2d", (configuringT1) ? 1 : 2);
     write_buffer_to_row(0);
     if (configuringT1)
-        sprintf(&buffer[0], "TIME:%2d DUTY:%%%2d", duration1, dutyCicle1);
+        sprintf(&buffer[0], "TIME:%2d DUTY:%%%2d", duration1, dutyCycle1);
     else
-        sprintf(&buffer[0], "TIME:%2d DUTY:%%%2d", duration2, dutyCicle2);
+        sprintf(&buffer[0], "TIME:%2d DUTY:%%%2d", duration2, dutyCycle2);
     write_buffer_to_row(1);
 }
 
