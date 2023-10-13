@@ -74,7 +74,7 @@ int main(void) {
         }
 
         P2State = (PIND & (1 << P2));
-        if (P2State != lastP2State) {
+        if (!motorIsOn && P2State != lastP2State) {
             if (!P2State) {
                 _delay_ms(BOUNCE_DELAY);
                 if (!(PIND & (1 << P2)))
