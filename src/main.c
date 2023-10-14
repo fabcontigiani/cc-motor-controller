@@ -25,15 +25,12 @@ uint8_t P2State;
 uint8_t lastP2State = 1;
 uint8_t P3State;
 uint8_t lastP3State = 1;
-uint8_t motorIsOn = 0; // 0 = OFF; 1 = Stage 1; 2 = Stage 2
-uint8_t lastMotorState = 0;
-uint8_t configuringT1 = 1;
-uint8_t duration1 = 20; // * 100ms
-uint8_t duration2 = 39; // * 100ms
-uint8_t dutyCycle1 = 40;
-uint8_t dutyCycle2 = 95;
-uint16_t pot1;
-uint16_t pot2;
+volatile uint8_t motorIsOn = 0; // 0 = OFF; 1 = Stage 1; 2 = Stage 2
+volatile uint8_t configuringT1 = 1;
+volatile uint8_t duration1 = 100; // * 100ms
+volatile uint8_t duration2 = 200; // * 100ms
+volatile uint8_t dutyCycle1 = 40;
+volatile uint8_t dutyCycle2 = 95;
 volatile uint8_t flag = 0;
 volatile uint8_t counter = 0;
 char buffer[LCD_WIDTH];
@@ -51,6 +48,11 @@ int main(void) {
     DDRB = 0xFF;           // Establece Puerto B como salida
     PORTD = (1 << P1) | (1 << P2) | (1 << P3);
 
+    DIDR0 = (1 << ADC0D) | (1 << ADC1D); // Deshabilita pines digitales
+    ADMUX = (1 << REFS0);                // Voltage de referencia AVCC
+    ADCSRA = (1 << ADATE) | (1 << ADIE) | (1 << ADPS0) | (1 << ADPS1) |
+             (1 << ADPS2); // Habilita disparo automático y prescaler 128
+
     // Configurar la solicitud de interrupción externa
     EICRA = (1 << ISC01); // Flanco descendente activa la interrupción
     EIMSK = (1 << INT0);  // Habilitar PD2 como interrupción externa
@@ -59,7 +61,6 @@ int main(void) {
     TCCR0A = (1 << WGM00) | (1 << WGM01); // Modo Fast PWM
     TCCR0B = (1 << WGM02);                // con tope OCR0A
     OCR0A = PWM_PERIOD - 1;
-    OCR0B = dutyCycle1;
 
     TCCR1B = (1 << WGM12);
     TIMSK1 = (1 << OCIE1A);
@@ -77,10 +78,6 @@ int main(void) {
             flag = 0;
         }
 
-        if (motorIsOn != lastMotorState)
-            updateLCD_normalMode();
-        lastMotorState = motorIsOn;
-
         P2State = (PIND & (1 << P2));
         if (!motorIsOn && P2State != lastP2State) {
             if (!P2State) {
@@ -90,6 +87,9 @@ int main(void) {
             }
         }
         lastP2State = P2State;
+
+        _delay_ms(BOUNCE_DELAY);
+        updateLCD_normalMode();
     }
 
     return 0;
@@ -107,14 +107,14 @@ ISR(TIMER1_COMPA_vect) {
     switch (motorIsOn) {
     case 1:
         if (counter >= duration1) {
-            OCR0B = dutyCycle2;
+            OCR0B = dutyCycle2 / 100.0 * PWM_PERIOD;
             motorIsOn = 2;
             counter = 0;
         }
         break;
     case 2:
         if (counter >= duration2) {
-            OCR0B = dutyCycle1;
+            OCR0B = dutyCycle1 / 100.0 * PWM_PERIOD;
             motorIsOn = 1;
             counter = 0;
         }
@@ -124,8 +124,26 @@ ISR(TIMER1_COMPA_vect) {
     }
 }
 
+ISR(ADC_vect) {
+    if (ADMUX & (1 << MUX0)) {
+        if (configuringT1) {
+            duration1 = 100 + (ADC / 1023.0) * 100;
+        } else {
+            duration2 = 100 + (ADC / 1023.0) * 100;
+        }
+    } else {
+        if (configuringT1) {
+            dutyCycle1 = 40 + (ADC / 1023.0) * 55;
+        } else {
+            dutyCycle2 = 40 + (ADC / 1023.0) * 55;
+        }
+    }
+    ADMUX ^= (1 << MUX0);
+}
+
 void start_motor() {
     TCCR0A |= (1 << COM0B1);             // Modo PWM no invertido
+    OCR0B = dutyCycle1 / 100.0 * PWM_PERIOD;
     TCCR0B |= (1 << CS01) | (1 << CS00); // Prescaler 64. Inicia conteo
     TCCR1B |= (1 << CS12);               // Prescaler 256. Inicia conteo
     motorIsOn = 1;
@@ -138,12 +156,12 @@ void stop_motor() {
     TCCR1B &= ~(1 << CS12);                // Prescaler 0. Detiene conteo
     TCNT1 = 0;                             // Reinicia contador
     PORTD &= ~(1 << PIN_PWM);              // Apaga motor
-    OCR0B = dutyCycle1;
     counter = 0;
     motorIsOn = 0;
 }
 
 void configuration_mode() {
+    ADCSRA |= (1 << ADEN) | (1 << ADSC); // Inicia conversión
     lastP2State = 0;
     updateLCD_configurationMode();
     while (1) {
@@ -164,14 +182,16 @@ void configuration_mode() {
         if (P3State != lastP3State) {
             if (!P3State) {
                 _delay_ms(BOUNCE_DELAY);
-                if (!(PIND & (1 << P3))) {
+                if (!(PIND & (1 << P3)))
                     configuringT1 ^= 1;
-                    updateLCD_configurationMode();
-                }
             }
         }
         lastP3State = P3State;
+
+        _delay_ms(BOUNCE_DELAY);
+        updateLCD_configurationMode();
     }
+    ADCSRA &= ~(1 << ADEN); // Detiene conversión
     updateLCD_normalMode();
 }
 
@@ -183,26 +203,26 @@ void write_buffer_to_row(int row) {
 
 void updateLCD_configurationMode() {
     if (configuringT1) {
-        sprintf(&buffer[0], "TIME %d: %-2.1fs", 1, duration1 / 10.0);
+        sprintf(&buffer[0], "TIME %d: %-2.1fs   ", 1, duration1 / 10.0);
         write_buffer_to_row(0);
-        sprintf(&buffer[0], "DUTY %d: %2d%%", 1, dutyCycle1);
+        sprintf(&buffer[0], "DUTY %d: %2d%%     ", 1, dutyCycle1);
         write_buffer_to_row(1);
     } else { // configuring T2
-        sprintf(&buffer[0], "TIME %d: %-2.1fs", 2, duration2 / 10.0);
+        sprintf(&buffer[0], "TIME %d: %-2.1fs   ", 2, duration2 / 10.0);
         write_buffer_to_row(0);
-        sprintf(&buffer[0], "DUTY %d: %2d%%", 2, dutyCycle2);
+        sprintf(&buffer[0], "DUTY %d: %2d%%     ", 2, dutyCycle2);
         write_buffer_to_row(1);
     }
 }
 
 void updateLCD_normalMode() {
     if (motorIsOn) {
-        sprintf(&buffer[0], "MOTOR: ON ");
+        sprintf(&buffer[0], "MOTOR: ON      ");
         write_buffer_to_row(0);
         sprintf(&buffer[0], "STATUS: STAGE %d", motorIsOn);
         write_buffer_to_row(1);
     } else { // motor is off
-        sprintf(&buffer[0], "MOTOR: OFF");
+        sprintf(&buffer[0], "MOTOR: OFF     ");
         write_buffer_to_row(0);
         sprintf(&buffer[0], "STATUS: STANDBY");
         write_buffer_to_row(1);
