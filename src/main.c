@@ -126,17 +126,15 @@ ISR(TIMER1_COMPA_vect) {
 
 ISR(ADC_vect) {
     if (ADMUX & (1 << MUX0)) {
-        if (configuringT1) {
+        if (configuringT1)
             duration1 = 100 + (ADC / 1023.0) * 100;
-        } else {
+        else
             duration2 = 100 + (ADC / 1023.0) * 100;
-        }
     } else {
-        if (configuringT1) {
+        if (configuringT1)
             dutyCycle1 = 40 + (ADC / 1023.0) * 55;
-        } else {
+        else
             dutyCycle2 = 40 + (ADC / 1023.0) * 55;
-        }
     }
     ADMUX ^= (1 << MUX0);
 }
