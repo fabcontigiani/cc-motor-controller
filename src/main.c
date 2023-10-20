@@ -215,14 +215,16 @@ void updateLCD_configurationMode() {
 
 void updateLCD_normalMode() {
     if (motorIsOn) {
-        sprintf(&buffer[0], "MOTOR: ON      ");
+        sprintf(&buffer[0], "MOTOR: STAGE %d ", motorIsOn);
         write_buffer_to_row(0);
-        sprintf(&buffer[0], "STATUS: STAGE %d", motorIsOn);
+        sprintf(&buffer[0], "PROGRESS: %2d%%",
+                (motorIsOn == 1) ? (counter * 100) / duration1
+                                 : (counter * 100) / duration2);
         write_buffer_to_row(1);
     } else { // motor is off
         sprintf(&buffer[0], "MOTOR: OFF     ");
         write_buffer_to_row(0);
-        sprintf(&buffer[0], "STATUS: STANDBY");
+        sprintf(&buffer[0], "%16s", " ");
         write_buffer_to_row(1);
     }
 }
